@@ -1,0 +1,34 @@
+# Python 3.11+ (pinned to 3.12 for dev based on local availability).
+# Numpy <2.0 because librosa/numba lag on 2.x.
+
+# --- core numeric / audio ---
+numpy==1.26.4
+scipy==1.13.1
+soundfile==0.12.1
+librosa==0.10.2
+pyloudnorm==0.1.1
+pedalboard==0.9.18
+
+# --- ML ---
+torch==2.5.1
+torchaudio==2.5.1
+torchlibrosa==0.1.0   # PANNs spectrogram frontend (exact feature parity w/ pretrained Cnn14)
+scikit-learn==1.5.2
+
+# --- data ---
+musdb==0.4.2
+
+# --- agent / API ---
+pydantic==2.9.2
+openai==1.51.0
+httpx==0.27.2   # openai 1.51 passes proxies= to httpx; removed in httpx>=0.28
+python-dotenv==1.0.1
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+
+# --- utils ---
+tqdm==4.66.5
+
+# --- dev ---
+pytest==8.3.3
