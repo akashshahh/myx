@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, ValidationError
 from agent.executor import OP_TYPES, MasteringChain
 from data.degradation import ISSUE_DIMENSIONS
 
-DEFAULT_MODEL = "google/gemini-2.0-flash-001"
+DEFAULT_MODEL = "google/gemini-2.5-flash"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
 
