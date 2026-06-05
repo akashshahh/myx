@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hybrid Mastering Agent</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #141821;
+    --panel-2: #1b2029;
+    --line: #262d3a;
+    --ink: #e8ecf4;
+    --muted: #8a93a6;
+    --accent: #5b8cff;
+    --accent-2: #36d6a0;
+    --warn: #ffb454;
+    --orig: #6b7689;
+    --mast: #36d6a0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: radial-gradient(1200px 600px at 70% -10%, #16203a 0%, var(--bg) 55%);
+    color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 40px 24px 80px; }
+  header h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  header .sub { color: var(--muted); margin: 0 0 28px; max-width: 64ch; }
+  .tag { display:inline-block; font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+         color: var(--accent-2); border:1px solid var(--line); border-radius:999px;
+         padding:3px 10px; margin-bottom:14px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .controls { display: grid; gap: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
+  label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  select, input[type=file] {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 9px; padding: 10px 12px; font: inherit; width: 100%;
+  }
+  input[type=file]::file-selector-button {
+    background: var(--line); color: var(--ink); border: 0; border-radius: 6px;
+    padding: 6px 10px; margin-right: 10px; cursor: pointer;
+  }
+  .lufs-field { min-width: 220px; }
+  .lufs-field .val { color: var(--ink); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .checkbox { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .checkbox input { accent-color: var(--accent-2); width: 16px; height: 16px; }
+  .or { color: var(--muted); font-size: 12px; text-align:center; }
+  button.go {
+    background: linear-gradient(180deg, var(--accent), #3f6fe0); color: #fff; border: 0;
+    border-radius: 10px; padding: 13px 26px; font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: transform .05s ease, filter .15s ease;
+  }
+  button.go:hover { filter: brightness(1.08); }
+  button.go:active { transform: translateY(1px); }
+  button.go:disabled { opacity: .5; cursor: default; }
+  .status { margin-top: 14px; color: var(--muted); font-size: 14px; min-height: 20px; }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--line);
+             border-top-color: var(--accent); border-radius:50%; animation: spin .8s linear infinite;
+             vertical-align:-2px; margin-right:8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  section.results { margin-top: 28px; display: none; }
+  .players { display: grid; gap: 14px; }
+  .player { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .player .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .player .name { font-weight: 600; display:flex; align-items:center; gap:9px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .dot.orig { background: var(--orig); } .dot.mast { background: var(--mast); }
+  .player .lufs { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .wave { cursor: pointer; }
+  .pbtn { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+          border-radius: 8px; padding: 7px 14px; cursor: pointer; font: inherit; }
+  .pbtn:hover { border-color: var(--accent); }
+  .delta-good { color: var(--accent-2); } .delta-bad { color: var(--warn); }
+
+  details.trace { margin-top: 22px; background: var(--panel); border: 1px solid var(--line);
+                  border-radius: 12px; padding: 4px 18px; }
+  details.trace > summary { cursor: pointer; padding: 14px 0; font-weight: 600; list-style: none; }
+  details.trace > summary::-webkit-details-marker { display: none; }
+  details.trace > summary::before { content: "▸ "; color: var(--accent); }
+  details.trace[open] > summary::before { content: "▾ "; }
+  .iter { border-top: 1px solid var(--line); padding: 16px 0; }
+  .iter h4 { margin: 0 0 8px; font-size: 14px; color: var(--accent); }
+  .reasoning { color: var(--ink); background: var(--panel-2); border-radius: 8px; padding: 11px 13px;
+               margin: 8px 0; font-size: 14px; }
+  .bars { display: grid; grid-template-columns: 170px 1fr 46px; gap: 5px 10px; align-items: center;
+          margin: 10px 0; font-size: 12px; }
+  .bars .bname { color: var(--muted); text-align: right; }
+  .bar { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 4px;
+                background: linear-gradient(90deg, var(--accent-2), var(--accent)); }
+  .bval { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .chain { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .step { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+          padding: 6px 10px; font-size: 12.5px; }
+  .step b { color: var(--accent); font-weight: 600; }
+  .step .p { color: var(--muted); }
+  .empty-chain { color: var(--muted); font-style: italic; font-size: 13px; }
+  .stopped { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  a { color: var(--accent); }
+  footer { margin-top: 36px; color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="tag">CS153 · hybrid perception + LLM</div>
+    <h1>Hybrid Mastering Agent</h1>
+    <p class="sub">
+      A fine-tuned PANNs model listens for eight mastering problems, an LLM reasons over
+      those scores plus raw DSP measurements, and a Pedalboard chain renders the fix — looping up
+      to three times. Pick a demo track (optionally degraded to give the agent work) or upload your
+      own, then A/B the result and read what the agent decided.
+    </p>
+  </header>
+
+  <div class="panel controls">
+    <div class="row">
+      <div class="field">
+        <label for="track">Demo track (MUSDB18)</label>
+        <select id="track"><option value="">Loading…</option></select>
+      </div>
+      <div class="field checkbox-field">
+        <label>&nbsp;</label>
+        <span class="checkbox"><input type="checkbox" id="degrade" checked />
+          <label for="degrade" style="text-transform:none;letter-spacing:0;color:inherit;font-size:13px">
+            Degrade first (clean stems need no mastering)</label></span>
+      </div>
+    </div>
+    <div class="or">— or —</div>
+    <div class="row">
+      <div class="field">
+        <label for="file">Upload audio (wav / flac, ≤60s)</label>
+        <input type="file" id="file" accept="audio/*" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field lufs-field">
+        <label for="lufs">Target loudness · <span class="val" id="lufsVal">-14.0</span> LUFS</label>
+        <input type="range" id="lufs" min="-24" max="-8" step="0.5" value="-14" />
+      </div>
+      <button class="go" id="go">Master it</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <section class="results" id="results">
+    <div class="players">
+      <div class="player">
+        <div class="head">
+          <span class="name"><span class="dot orig"></span>Original <span id="origTag" style="color:var(--muted);font-weight:400"></span></span>
+          <span class="lufs" id="origLufs"></span>
+        </div>
+        <div class="wave" id="waveOrig"></div>
+        <div style="margin-top:10px"><button class="pbtn" data-w="orig">▶ Play original</button></div>
+      </div>
+      <div class="player">
+        <div class="head">
+          <span class="name"><span class="dot mast"></span>Mastered</span>
+          <span class="lufs" id="mastLufs"></span>
+        </div>
+        <div class="wave" id="waveMast"></div>
+        <div style="margin-top:10px"><button class="pbtn" data-w="mast">▶ Play mastered</button></div>
+      </div>
+    </div>
+    <details class="trace" id="trace" open>
+      <summary>Agent reasoning trace</summary>
+      <div id="iters"></div>
+      <div class="stopped" id="stopped"></div>
+    </details>
+  </section>
+
+  <footer>
+    Local demo · loudness is measured (ITU-R BS.1770), not just labeled. See the README for the
+    full evaluation and known limitations (the agent reliably hits the loudness target but can
+    over-process tonal balance).
+  </footer>
+</div>
+
+<script type="module">
+import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
+
+const $ = (id) => document.getElementById(id);
+const players = {};
+
+function makeWave(container, color) {
+  return WaveSurfer.create({
+    container, height: 72, waveColor: color, progressColor: '#5b8cff',
+    cursorColor: '#e8ecf4', barWidth: 2, barGap: 1, barRadius: 2, normalize: true,
+  });
+}
+
+// populate demo tracks
+fetch('/tracks').then(r => r.json()).then(list => {
+  const sel = $('track');
+  sel.innerHTML = '';
+  for (const t of list) {
+    const o = document.createElement('option');
+    o.value = t.id; o.textContent = t.name; sel.appendChild(o);
+  }
+}).catch(() => { $('track').innerHTML = '<option value="">(no tracks)</option>'; });
+
+$('lufs').addEventListener('input', e => $('lufsVal').textContent = (+e.target.value).toFixed(1));
+$('file').addEventListener('change', e => {
+  // a chosen upload takes precedence; grey the track picker visually
+  $('track').style.opacity = e.target.files.length ? 0.4 : 1;
+});
+
+function fmtLufs(v) { return v === null || v === undefined ? '—' : v.toFixed(1) + ' LUFS'; }
+
+function renderBars(vec) {
+  const rows = Object.entries(vec).map(([k, v]) => {
+    const pct = Math.max(0, Math.min(1, v)) * 100;
+    return `<div class="bname">${k}</div>
+            <div class="bar"><span style="width:${pct.toFixed(0)}%"></span></div>
+            <div class="bval">${v.toFixed(2)}</div>`;
+  }).join('');
+  return `<div class="bars">${rows}</div>`;
+}
+
+function renderChain(chain) {
+  if (!chain || !chain.length) return '<div class="empty-chain">empty chain — nothing to do</div>';
+  const steps = chain.map(s => {
+    const params = Object.entries(s).filter(([k]) => k !== 'type')
+      .map(([k, v]) => `<span class="p">${k} ${typeof v === 'number' ? (+v).toFixed(1) : v}</span>`)
+      .join(' · ');
+    return `<div class="step"><b>${s.type}</b><br>${params}</div>`;
+  }).join('');
+  return `<div class="chain">${steps}</div>`;
+}
+
+function renderTrace(trace) {
+  const host = $('iters');
+  host.innerHTML = '';
+  for (const it of trace.iterations) {
+    const div = document.createElement('div');
+    div.className = 'iter';
+    div.innerHTML = `
+      <h4>Iteration ${it.iteration}</h4>
+      <div class="reasoning">${it.reasoning}</div>
+      <label style="display:block;margin-top:10px">Perceived issues (0–1)</label>
+      ${renderBars(it.issue_vector)}
+      <label style="display:block;margin-top:6px">Mastering chain</label>
+      ${renderChain(it.chain)}`;
+    host.appendChild(div);
+  }
+  $('stopped').textContent = 'Stopped: ' + trace.stopped_reason;
+}
+
+function loadPlayer(key, url, color) {
+  if (players[key]) players[key].destroy();
+  const ws = makeWave(key === 'orig' ? $('waveOrig') : $('waveMast'), color);
+  ws.load(url);
+  players[key] = ws;
+}
+
+// transport: only one plays at a time
+document.querySelectorAll('.pbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const key = btn.dataset.w;
+    const other = key === 'orig' ? 'mast' : 'orig';
+    if (players[other]) players[other].pause();
+    players[key].playPause();
+  });
+});
+function wireLabels() {
+  for (const [key, label] of [['orig', 'original'], ['mast', 'mastered']]) {
+    const ws = players[key];
+    const btn = document.querySelector(`.pbtn[data-w="${key}"]`);
+    ws.on('play', () => btn.textContent = '❚❚ Pause ' + label);
+    ws.on('pause', () => btn.textContent = '▶ Play ' + label);
+    ws.on('finish', () => btn.textContent = '▶ Play ' + label);
+  }
+}
+
+$('go').addEventListener('click', async () => {
+  const status = $('status');
+  const btn = $('go');
+  const fd = new FormData();
+  const file = $('file').files[0];
+  if (file) {
+    fd.append('file', file);
+  } else {
+    const t = $('track').value;
+    if (t === '') { status.textContent = 'Pick a demo track or upload a file.'; return; }
+    fd.append('track', t);
+    fd.append('degrade', $('degrade').checked ? 'true' : 'false');
+  }
+  fd.append('target_lufs', $('lufs').value);
+
+  btn.disabled = true;
+  status.innerHTML = '<span class="spinner"></span>Listening, reasoning, and rendering… this takes ~30–90s (3 LLM passes).';
+  try {
+    const r = await fetch('/master', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    const data = await r.json();
+
+    $('origTag').textContent = data.name ? '· ' + data.name : '';
+    $('origLufs').textContent = fmtLufs(data.lufs.original);
+    $('mastLufs').textContent = fmtLufs(data.lufs.mastered)
+      + (data.lufs.mastered !== null ? `  (target ${(+data.target_lufs).toFixed(1)})` : '');
+
+    loadPlayer('orig', data.original_url, '#6b7689');
+    loadPlayer('mast', data.mastered_url, '#36d6a0');
+    wireLabels();
+    renderTrace(data.trace);
+    $('results').style.display = 'block';
+    status.textContent = 'Done — A/B the two players above.';
+    $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

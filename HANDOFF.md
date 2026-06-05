@@ -193,24 +193,82 @@ sit idle. Built:
 - Dep note: `requirements.txt` torch lines are CPU wheels (Mac); the laptop must
   `pip install torch==2.5.1 torchaudio==2.5.1 --index-url .../cu121` instead.
 
-**Next action: run training on the 4050** per `TRAINING.md`, then copy
-`checkpoints/perception_best.pth` back to the Mac — the demo/agent pick it up
-automatically. After that:
+### Step 6 RAN + step 12 built (2026-06-02) — training landed, perception evaluated
+- **Training run done** on the 4050: `checkpoints/perception_best.pth`,
+  val_mse=0.063, 12 epochs. Committed via **git LFS** (commit `cadc0a5`).
+  ⚠️ The Mac needs **git-lfs** to materialize it: a plain `git pull` leaves a
+  134-byte pointer, not the 323 MB weights. git-lfs binary is in `~/.local/bin`
+  (brew was blocked on a `/usr/local/share/man/man8` perms issue — `sudo chown
+  -R akashshah` it to unblock brew later). `git lfs pull` fetches the real file.
+- **`eval/synthetic_eval.py` built (step 12).** Two evals on held-out tracks
+  with known degradation params:
+  (a) PERCEPTION (local, no LLM) — per-dim ROC-AUC (present vs absent),
+      regression MSE vs label (ties back to val_mse), per-dim severity Spearman.
+  (b) RECOVERY (needs OPENROUTER key) — runs full `master()`, reports
+      log-spectral distance to clean / |LUFS-target| / crest delta vs clean,
+      for degraded input AND mastered output so improvement is explicit.
+  CLI: `python eval/synthetic_eval.py [--no-recovery] [--recovery-tracks N]
+  [--subset test] [--smoke]`. Writes `outputs/eval/synthetic_eval.json`.
+  `tests/test_eval.py` — 8 tests (stub perceiver, no network). **83/83 passing.**
+- **Perception eval result (test subset, 300 ex):** regression MSE **0.0638**
+  (matches val_mse — harness validated). macro ROC-AUC **0.685**. Strong on
+  dynamics — over_compression **0.96**, loudness_deficit/dynamic_range ~0.74,
+  low_mid_mud 0.70, harshness 0.69. Near chance on subtle EQ — low_excess 0.57,
+  mid_balance 0.55, presence_lack 0.54. Honest writeup story: model sees
+  dynamics/loudness reliably, struggles on gentle tonal shelves/peaks.
+  CAVEAT: trainer selected best ckpt by val-MSE on `test`, so these are mildly
+  optimistic; flagged in the JSON.
+- **Recovery eval RAN (2026-06-02, 5 tracks via `google/gemini-2.5-flash`):**
+  LUFS error 9.14 → **1.65** (agent reliably hits the −14 LUFS target). BUT
+  level-invariant log-spectral-dist to clean 6.18 → **11.34** (tonal balance
+  moves *away* from clean) and crest delta 3.39 → **−3.00** (master more
+  compressed than the clean mix). Read: agent **overprocesses** — heavy limiting
+  to hit −14 LUFS on short *unmastered* stems + weak EQ perception (AUC ~0.55)
+  → misdirected/excessive tonal moves. Honest caveat for the writeup: clean
+  MUSDB stems are unmastered, so LSD-to-clean penalizes legitimate mastering
+  character; a cleaner future eval degrades a *mastered* reference instead.
+- **Model comparison (2026-06-03, same 5 tracks/seed):** swapping flash →
+  `google/gemini-2.5-pro` improves EVERY metric monotonically (good sign the eval
+  discriminates agent quality): LUFS err 1.65 → **0.18**, LSD 11.34 → **9.93**,
+  crest delta −3.00 → **−2.17**. So overprocessing is partly model quality, but
+  the structural finding holds: even pro's LSD (9.93) > degraded (6.18). Pro JSON
+  at `outputs/eval/synthetic_eval_pro.json`; flash at `synthetic_eval.json`.
+- **Metric fix:** `log_spectral_distance` is now **level-invariant** (subtracts
+  mean dB offset) so LSD scores tonal SHAPE, not loudness — raw LSD was dominated
+  by the intended loudness change. `level_invariant=False` recovers the old raw
+  metric. Test `test_lsd_gain_invariant` pins LSD(x, k·x) ≈ 0. **84/84 passing.**
+- **MODEL SWAP (2026-06-02):** `google/gemini-2.0-flash-001` was RETIRED on
+  OpenRouter (404 "no endpoints found"). Changed default to
+  **`google/gemini-2.5-flash`** in `.env`, `.env.example`, and
+  `agent/reasoner.py::DEFAULT_MODEL`. Swap to a stronger model (e.g.
+  `anthropic/claude-3.5-haiku` or `google/gemini-2.5-pro`) for final eval —
+  the overprocessing finding may partly reflect the cheap flash model.
 
 ## What's next — remaining plan steps
 
-Path B is done: perception model loads (step 5), training (6), inference (7),
-analysis (8), executor (9), reasoner (10), loop (11) all built. Steps 7-11
-live-verified against OpenRouter; step 6 smoke-verified (full train run pending
-on the laptop). Remaining:
+Path B + eval done: perception model loads (step 5), training (6, RAN),
+inference (7), analysis (8), executor (9), reasoner (10), loop (11),
+**synthetic eval (12)** all built. Steps 7-11 live-verified against OpenRouter;
+step 12 perception half verified on the real checkpoint. Remaining:
 
-- **Step 12 — `eval/synthetic_eval.py`** — held-out tracks w/ known degradation
-  params: per-dim ROC AUC for the perception head + recovery metrics
-  (log-spectral distance to clean, LUFS error, crest delta) for the full agent.
-- **Step 13 — `api/server.py` + `frontend/index.html`** — `POST /master`
-  (multipart in, `{audio_url, trace}` out); wavesurfer.js A/B + collapsible
-  reasoning log. The loop's `MasteringResult.trace()` is already the response shape.
-- **Step 14 — deploy** — CPU droplet, uvicorn behind nginx, model at startup.
+- **Step 12 follow-up** — DONE. Recovery half ran live on 5 tracks with flash and
+  pro; pro beats flash monotonically (LUFS err 1.65→0.18). Numbers in README §3.
+- **Step 13 — `api/server.py` + `frontend/index.html`** — DONE (2026-06-04).
+  FastAPI: `GET /`, `GET /tracks`, `POST /master` (upload OR demo-track index,
+  optional `degrade`), `GET /audio/{id}/{which}`. Model loaded once via lifespan,
+  jobs serialized behind a `threading.Lock`. Frontend is a single self-contained
+  `index.html` (wavesurfer.js v7 from CDN): track picker + upload, target-LUFS
+  slider, A/B players, collapsible reasoning trace. `tests/test_api.py` covers the
+  wiring (patches `master`/loader/reasoner — no LLM/network). Live-verified
+  end-to-end: degrade→master→stream in ~9s, 3 iterations, trace shape matches FE.
+  Run: `uvicorn api.server:app --reload` → http://localhost:8000.
+  NOTE: jobs write WAVs to `outputs/api/` (gitignored). For the demo recording set
+  `OPENROUTER_MODEL=google/gemini-2.5-pro` for much better loudness targeting.
+- **Submission docs — DONE** — README rewritten (problem/architecture/results/
+  run/AI-disclosure), `LICENSE` (MIT) + `ATTRIBUTION.md` (PANNs/MUSDB/pedalboard/…)
+  added. Suite at 89 passing.
+- **Step 14 — deploy (OPTIONAL, future work)** — CPU droplet, uvicorn behind nginx,
+  model at startup. Deliberately deferred; local run is enough for the demo video.
 
 ## Pointers
 
